@@ -10,3 +10,4 @@ traces/*.json
 *.egg-info/
 build/
 dist/
+.commandcode/
