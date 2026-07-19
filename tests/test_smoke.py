@@ -10,4 +10,3 @@ def test_package_is_importable():
     import enrichment_router
 
     assert enrichment_router is not None
-    
