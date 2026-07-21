@@ -50,7 +50,22 @@ def _run_tier_tool(
         result = wikipedia.enrich(state["request"], fetcher=state["wiki_fetcher"])
         return result.resolved, result.cost_usd, result.measured_latency_ms
     if tier == 2:
-        result = llm_mod.enrich(state["request"], client=state["llm_client"])
+        # Calculate which fields from the original request are STILL unresolved.
+        # We must NOT ask the LLM to resolve fields that cheaper tiers already got.
+        currently_unresolved = state["request"].fields_needed - set(state["resolved"].keys())
+
+        # Create a copy of the request with ONLY the currently unresolved fields
+        llm_request = state["request"].model_copy(
+            update={
+                "fields_needed": currently_unresolved,
+            }
+        )
+
+        # If there is nothing left to resolve (edge case), return empty
+        if not currently_unresolved:
+            return {}, 0.0, 0.0
+
+        result = llm_mod.enrich(llm_request, client=state["llm_client"])
         return result.resolved, result.cost_usd, result.measured_latency_ms
     raise ValueError(f"Unknown tier {tier}")
 

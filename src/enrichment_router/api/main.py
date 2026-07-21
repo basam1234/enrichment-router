@@ -28,6 +28,10 @@ from .schemas import (
     TraceEventOut,
 )
 
+from dotenv import load_dotenv
+
+load_dotenv()  # This reads the .env file and loads the variables into os.environ
+
 _cached_llm_client: Optional[LLMClient] = None
 
 
