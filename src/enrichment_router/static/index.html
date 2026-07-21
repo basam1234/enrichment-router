@@ -4,168 +4,363 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Enrichment Router</title>
-<!-- Why no build step: this project deliberately avoids frontend
-tooling. The page is small enough that vanilla JS is clearer than a
-bundled framework, and avoids an npm dependency. -->
 <style>
+  :root {
+    --bg: #fafafa;
+    --card-bg: #ffffff;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --border: #e5e7eb;
+    --success: #059669;
+    --warn: #d97706;
+    --error: #dc2626;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f0f0f0;
-    color: #333;
-    line-height: 1.5;
-    padding: 20px;
-    max-width: 900px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .header {
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    color: #fff;
+    padding: 32px 20px 28px;
+    text-align: center;
+  }
+
+  .header h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+  }
+
+  .header p {
+    margin-top: 6px;
+    opacity: .85;
+    font-size: .95rem;
+    max-width: 560px;
+    margin-inline: auto;
+  }
+
+  .container {
+    max-width: 920px;
     margin: 0 auto;
+    padding: 24px 20px 40px;
   }
-  h1 { font-size: 1.8em; margin-bottom: 8px; }
-  p { margin-bottom: 20px; color: #555; }
+
   .card {
-    background: #fff;
-    border-radius: 6px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
   }
-  label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.9em; }
-  input, select, textarea, button {
+
+  .card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: .85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+
+  input, select, textarea {
     width: 100%;
-    padding: 8px 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 0.95em;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .95rem;
     font-family: inherit;
+    background: #fff;
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
   }
-  textarea { resize: vertical; min-height: 60px; }
-  button {
-    width: auto;
+
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+  }
+
+  textarea { resize: vertical; min-height: 64px; }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .form-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
-    background: #2563eb;
+    background: var(--accent);
     color: #fff;
     border: none;
-    padding: 10px 24px;
+    border-radius: 6px;
+    padding: 10px 28px;
+    font-weight: 600;
+    font-size: .95rem;
+    transition: background .15s, transform .05s;
+  }
+
+  .btn:hover { background: var(--accent-hover); }
+  .btn:active { transform: scale(.98); }
+
+  .btn-outline {
+    background: none;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    font-weight: 500;
+    font-size: .85rem;
+  }
+
+  .btn-outline:hover { background: #f3f4f6; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+  }
+
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    background: #f9fafb;
+    font-weight: 600;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--text-muted);
+  }
+
+  tr:hover td { background: #fafaff; }
+
+  .mono { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: .88em; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: .78rem;
     font-weight: 600;
   }
-  button:hover { background: #1d4ed8; }
-  .form-row { margin-bottom: 14px; }
-  .form-row-inline { display: flex; gap: 14px; }
-  .form-row-inline > .form-row { flex: 1; }
-  .error { color: #dc2626; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e5e5; }
-  th { background: #f9f9f9; font-weight: 600; }
-  .mono { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; }
-  .status-completed { color: #16a34a; font-weight: 600; }
-  .status-partial { color: #d97706; font-weight: 600; }
-  .status-error { color: #dc2626; font-weight: 600; }
-  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-  .section-header h2 { font-size: 1.2em; }
-  .trace-row { background: #f5f5f5; }
-  .trace-row td { font-size: 0.85em; padding: 10px 14px; }
-  .trace-event { margin-bottom: 6px; }
-  .trace-event pre { background: #eaeaea; padding: 6px 10px; border-radius: 4px; overflow-x: auto; font-size: 0.8em; }
-  .expand-btn { background: none; border: 1px solid #ccc; color: #333; padding: 4px 12px; font-size: 0.85em; }
-  .expand-btn:hover { background: #e5e5e5; }
+
+  .badge-ok { background: #d1fae5; color: var(--success); }
+  .badge-partial { background: #fef3c7; color: var(--warn); }
+  .badge-err { background: #fee2e2; color: var(--error); }
+  .badge-tier { background: #eef2ff; color: var(--accent); }
+
+  .stat-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin: 16px 0 12px;
+  }
+
+  .stat {
+    background: #f9fafb;
+    border-radius: 6px;
+    padding: 12px 16px;
+    min-width: 120px;
+  }
+
+  .stat-value {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .stat-label {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .trace-row { background: #f5f3ff; }
+  .trace-row td { padding: 14px 16px; font-size: .85rem; }
+
+  .trace-event {
+    margin-bottom: 10px;
+    padding: 10px 14px;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .trace-event strong {
+    color: var(--accent);
+    font-size: .88rem;
+  }
+
+  .trace-event pre {
+    background: #f3f4f6;
+    padding: 8px 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: .78rem;
+    margin-top: 6px;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 24px;
+    font-size: .9rem;
+  }
+
+  .flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
 </style>
 </head>
 <body>
 
-<h1>Enrichment Router</h1>
-<p>Submit a company to enrich missing fields. The router escalates through heuristic &rarr; Wikipedia &rarr; LLM tiers, stopping when fields are resolved or the budget is exhausted.</p>
-
-<div class="card">
-  <form id="enrich-form">
-    <div class="form-row">
-      <label for="name">Company Name *</label>
-      <input type="text" id="name" name="name" required>
-    </div>
-    <div class="form-row-inline">
-      <div class="form-row">
-        <label for="domain">Domain</label>
-        <input type="text" id="domain" name="domain">
-      </div>
-      <div class="form-row">
-        <label for="industry">Industry</label>
-        <input type="text" id="industry" name="industry">
-      </div>
-      <div class="form-row">
-        <label for="country">Country</label>
-        <input type="text" id="country" name="country">
-      </div>
-    </div>
-    <div class="form-row-inline">
-      <div class="form-row">
-        <label for="is_public">Public Company</label>
-        <select id="is_public" name="is_public">
-          <option value="">Not specified</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <label for="max_cost_usd">Max Cost (USD)</label>
-        <input type="number" id="max_cost_usd" name="max_cost_usd" value="0.01" min="0.0001" step="0.0001">
-      </div>
-      <div class="form-row">
-        <label for="max_latency_ms">Max Latency (ms)</label>
-        <input type="number" id="max_latency_ms" name="max_latency_ms" value="5000" min="100" step="100">
-      </div>
-    </div>
-    <div class="form-row">
-      <label for="short_description">Short Description</label>
-      <textarea id="short_description" name="short_description"></textarea>
-    </div>
-    <button type="submit">Enrich</button>
-  </form>
+<div class="header">
+  <h1>Enrichment Router</h1>
+  <p>A cost-and-latency-aware agent that fills in missing company data through heuristic → Wikipedia → LLM tiers, stopping when fields are resolved or the budget runs out.</p>
 </div>
 
-<div class="card" id="result-card" style="display:none;">
-  <div id="result"></div>
-</div>
-
-<div class="card">
-  <div class="section-header">
-    <h2>Past Runs</h2>
-    <button onclick="refreshRuns()" style="width:auto;">Refresh</button>
+<div class="container">
+  <div class="card">
+    <div class="card-title">📋 New Enrichment Request</div>
+    <form id="enrich-form">
+      <div class="form-grid">
+        <div>
+          <label for="name">Company Name *</label>
+          <input type="text" id="name" name="name" placeholder="e.g. Stripe" required>
+        </div>
+        <div>
+          <label for="domain">Domain</label>
+          <input type="text" id="domain" name="domain" placeholder="e.g. stripe.com">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="industry">Industry</label>
+          <input type="text" id="industry" name="industry" placeholder="leave blank to enrich">
+        </div>
+        <div>
+          <label for="country">Country</label>
+          <input type="text" id="country" name="country" placeholder="leave blank to enrich">
+        </div>
+        <div>
+          <label for="is_public">Public Company</label>
+          <select id="is_public" name="is_public">
+            <option value="">Not specified</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label for="short_description">Short Description</label>
+        <textarea id="short_description" name="short_description" placeholder="leave blank to enrich"></textarea>
+      </div>
+      <div class="form-grid form-grid-3">
+        <div>
+          <label for="max_cost_usd">Max Cost (USD)</label>
+          <input type="number" id="max_cost_usd" name="max_cost_usd" value="0.01" min="0.0001" step="0.0001">
+        </div>
+        <div>
+          <label for="max_latency_ms">Max Latency (ms)</label>
+          <input type="number" id="max_latency_ms" name="max_latency_ms" value="5000" min="100" step="100">
+        </div>
+        <div style="display: flex; align-items: flex-end;">
+          <button type="submit" class="btn">🚀 Enrich</button>
+        </div>
+      </div>
+    </form>
   </div>
-  <div id="runs"></div>
+
+  <div class="card" id="result-card" style="display:none;">
+    <div class="flex-between" style="margin-bottom: 16px;">
+      <div class="card-title" style="margin-bottom: 0;">📊 Result</div>
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <div class="flex-between" style="margin-bottom: 16px;">
+      <div class="card-title" style="margin-bottom: 0;">📜 Past Runs</div>
+      <button class="btn-outline" onclick="refreshRuns()">Refresh</button>
+    </div>
+    <div id="runs"></div>
+  </div>
 </div>
 
 <script>
-function formatCost(n) {
-  return Number(n).toFixed(6);
+function fmt(n, d) {
+  return Number(n).toFixed(d);
 }
 
-function formatLatency(n) {
-  return Number(n).toFixed(1);
+function badgeClass(status) {
+  const m = { 'done_all_resolved': 'badge-ok', 'partial_budget': 'badge-partial', 'partial_no_more_tiers': 'badge-partial', 'no_runs': 'badge-err' };
+  return m[status] || 'badge-err';
 }
 
-function statusColor(status) {
-  switch (status) {
-    case 'completed': return 'status-completed';
-    case 'partial': return 'status-partial';
-    default: return 'status-error';
-  }
+function statusLabel(s) {
+  const m = { 'done_all_resolved': 'Complete', 'partial_budget': 'Partial (budget)', 'partial_no_more_tiers': 'Partial (no tiers)', 'no_runs': 'No runs' };
+  return m[s] || s;
+}
+
+function tierLabel(f) {
+  if (f.caller_supplied) return 'Caller';
+  return 'T' + f.tier;
 }
 
 async function handleSubmit(e) {
   e.preventDefault();
-  const form = e.target;
+  const f = e.target;
   const body = {
-    name: form.name.value,
-    max_cost_usd: parseFloat(form.max_cost_usd.value),
-    max_latency_ms: parseFloat(form.max_latency_ms.value)
+    name: f.name.value,
+    max_cost_usd: parseFloat(f.max_cost_usd.value),
+    max_latency_ms: parseFloat(f.max_latency_ms.value)
   };
-  if (form.domain.value) body.domain = form.domain.value;
-  if (form.industry.value) body.industry = form.industry.value;
-  if (form.country.value) body.country = form.country.value;
-  if (form.short_description.value) body.short_description = form.short_description.value;
-  const isPublic = form.is_public.value;
-  if (isPublic === 'true') body.is_public = true;
-  else if (isPublic === 'false') body.is_public = false;
+  if (f.domain.value) body.domain = f.domain.value;
+  if (f.industry.value) body.industry = f.industry.value;
+  if (f.country.value) body.country = f.country.value;
+  if (f.short_description.value) body.short_description = f.short_description.value;
+  const pub = f.is_public.value;
+  if (pub === 'true') body.is_public = true;
+  else if (pub === 'false') body.is_public = false;
 
-  const resultCard = document.getElementById('result-card');
-  const resultDiv = document.getElementById('result');
+  const card = document.getElementById('result-card');
+  const el = document.getElementById('result');
 
   try {
     const resp = await fetch('/api/records', {
@@ -173,85 +368,90 @@ async function handleSubmit(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+    const data = await resp.json();
     if (!resp.ok) {
-      const err = await resp.json();
-      resultDiv.innerHTML = '<span class="error">' + (err.detail || 'Request failed') + '</span>';
+      el.innerHTML = '<div class="empty-state" style="color: var(--error);">' + (data.detail || 'Request failed') + '</div>';
     } else {
-      const data = await resp.json();
-      renderResult(data, resultDiv);
+      renderResult(data, el);
     }
   } catch (err) {
-    resultDiv.innerHTML = '<span class="error">Network error: ' + err.message + '</span>';
+    el.innerHTML = '<div class="empty-state" style="color: var(--error);">Network error: ' + err.message + '</div>';
   }
-  resultCard.style.display = '';
+  card.style.display = '';
 }
 
 function renderResult(data, el) {
-  let html = '';
-  html += '<p><strong>Run ID:</strong> ' + data.run_id + ' &nbsp; <strong>Record ID:</strong> ' + data.record_id + '</p>';
-  html += '<p>Status: <span class="' + statusColor(data.status) + '">' + data.status + '</span></p>';
+  let h = '';
+  h += '<div class="stat-row">';
+  h += '<div class="stat"><div class="stat-value">' + data.run_id + ' / ' + data.record_id + '</div><div class="stat-label">Run / Record IDs</div></div>';
+  h += '<div class="stat"><div class="stat-value">$' + fmt(data.total_cost_usd, 6) + '</div><div class="stat-label">Total Cost</div></div>';
+  h += '<div class="stat"><div class="stat-value">' + fmt(data.total_latency_ms, 1) + ' ms</div><div class="stat-label">Total Latency</div></div>';
+  h += '<div class="stat"><div class="stat-value"><span class="badge ' + badgeClass(data.status) + '">' + statusLabel(data.status) + '</span></div><div class="stat-label">Status</div></div>';
+  h += '</div>';
+
   if (data.resolved && data.resolved.length) {
-    html += '<table><thead><tr><th>Field</th><th>Value</th><th>Tier</th><th>Confidence</th></tr></thead><tbody>';
+    h += '<table><thead><tr><th>Field</th><th>Value</th><th>Source</th><th>Confidence</th></tr></thead><tbody>';
     for (const f of data.resolved) {
-      html += '<tr>';
-      html += '<td>' + f.name + '</td>';
-      html += '<td>' + f.value + '</td>';
-      html += '<td>' + (f.caller_supplied ? 'Caller-supplied' : 'Tier ' + f.tier) + '</td>';
-      html += '<td class="mono">' + f.confidence + '</td>';
-      html += '</tr>';
+      h += '<tr>';
+      h += '<td><strong>' + f.name + '</strong></td>';
+      h += '<td>' + String(f.value) + '</td>';
+      h += '<td><span class="badge badge-tier">' + tierLabel(f) + '</span></td>';
+      h += '<td class="mono">' + fmt(f.confidence, 2) + '</td>';
+      h += '</tr>';
     }
-    html += '</tbody></table>';
+    h += '</tbody></table>';
   }
+
   if (data.unresolved_fields && data.unresolved_fields.length) {
-    html += '<p><strong>Unresolved:</strong> ' + data.unresolved_fields.join(', ') + '</p>';
+    h += '<p style="margin-top: 12px;"><strong>Unresolved:</strong> ' + data.unresolved_fields.join(', ') + '</p>';
   }
-  html += '<p class="mono"><strong>Cost:</strong> $' + formatCost(data.total_cost_usd) + ' &nbsp; <strong>Latency:</strong> ' + formatLatency(data.total_latency_ms) + ' ms</p>';
-  el.innerHTML = html;
+
+  el.innerHTML = h;
 }
 
 async function refreshRuns() {
-  const runsDiv = document.getElementById('runs');
+  const el = document.getElementById('runs');
   try {
     const resp = await fetch('/api/records');
     if (!resp.ok) {
-      runsDiv.innerHTML = '<span class="error">Failed to load runs</span>';
+      el.innerHTML = '<div class="empty-state">Failed to load runs</div>';
       return;
     }
     const data = await resp.json();
-    renderRunsTable(data, runsDiv);
+    renderRunsTable(data, el);
   } catch (err) {
-    runsDiv.innerHTML = '<span class="error">Network error: ' + err.message + '</span>';
+    el.innerHTML = '<div class="empty-state">Network error: ' + err.message + '</div>';
   }
 }
 
 function renderRunsTable(records, el) {
   if (!records.length) {
-    el.innerHTML = '<p>No runs yet.</p>';
+    el.innerHTML = '<div class="empty-state">No runs yet. Submit a company above.</div>';
     return;
   }
-  let html = '<table id="runs-table"><thead><tr><th>Record ID</th><th>Name</th><th>Status</th><th>Resolved</th><th>Cost</th><th>Latency</th><th>Created</th><th></th></tr></thead><tbody>';
+  let h = '<table id="runs-table"><thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Resolved</th><th>Cost</th><th>Latency</th><th>Created</th><th></th></tr></thead><tbody>';
   for (const r of records) {
-    html += '<tr>';
-    html += '<td>' + r.record_id + '</td>';
-    html += '<td>' + r.name + '</td>';
-    html += '<td><span class="' + statusColor(r.status) + '">' + r.status + '</span></td>';
-    html += '<td class="mono">' + r.resolved_field_count + '</td>';
-    html += '<td class="mono">$' + formatCost(r.total_cost_usd) + '</td>';
-    html += '<td class="mono">' + formatLatency(r.total_latency_ms) + ' ms</td>';
-    html += '<td>' + r.created_at + '</td>';
-    html += '<td><button class="expand-btn" onclick="toggleTrace(' + r.record_id + ', this)">Show trace</button></td>';
-    html += '</tr>';
+    h += '<tr>';
+    h += '<td class="mono">#' + r.record_id + '</td>';
+    h += '<td><strong>' + r.name + '</strong></td>';
+    h += '<td><span class="badge ' + badgeClass(r.status) + '">' + statusLabel(r.status) + '</span></td>';
+    h += '<td class="mono">' + r.resolved_field_count + '</td>';
+    h += '<td class="mono">$' + fmt(r.total_cost_usd, 6) + '</td>';
+    h += '<td class="mono">' + fmt(r.total_latency_ms, 1) + ' ms</td>';
+    h += '<td>' + r.created_at + '</td>';
+    h += '<td><button class="btn-outline" onclick="toggleTrace(' + r.record_id + ', this)">Trace</button></td>';
+    h += '</tr>';
   }
-  html += '</tbody></table>';
-  el.innerHTML = html;
+  h += '</tbody></table>';
+  el.innerHTML = h;
 }
 
 async function toggleTrace(recordId, btn) {
-  const row = btn.parentElement.parentElement;
+  const row = btn.closest('tr');
   const existing = row.nextElementSibling;
   if (existing && existing.classList.contains('trace-row')) {
     existing.remove();
-    btn.textContent = 'Show trace';
+    btn.textContent = 'Trace';
     return;
   }
 
@@ -264,28 +464,26 @@ async function toggleTrace(recordId, btn) {
     const trace = await resp.json();
     const tr = document.createElement('tr');
     tr.classList.add('trace-row');
-    let html = '<td colspan="8">';
+    let h = '<td colspan="8">';
     if (!trace.length) {
-      html += '<p>No trace events.</p>';
+      h += '<div class="empty-state">No trace events.</div>';
     } else {
       for (const ev of trace) {
-        html += '<div class="trace-event"><strong>' + ev.node + '</strong> <span class="mono">' + ev.timestamp + '</span>';
-        html += '<pre>' + JSON.stringify(ev.detail, null, 2) + '</pre></div>';
+        h += '<div class="trace-event"><strong>' + ev.node + '</strong> <span class="mono">' + ev.timestamp + '</span>';
+        h += '<pre>' + JSON.stringify(ev.detail, null, 2) + '</pre></div>';
       }
     }
-    html += '</td>';
-    tr.innerHTML = html;
+    h += '</td>';
+    tr.innerHTML = h;
     row.after(tr);
-    btn.textContent = 'Hide trace';
+    btn.textContent = 'Hide';
   } catch (err) {
     alert('Network error: ' + err.message);
   }
 }
 
 document.getElementById('enrich-form').addEventListener('submit', handleSubmit);
-
 refreshRuns();
 </script>
-
 </body>
 </html>
