@@ -14,6 +14,12 @@ WIKIPEDIA_REST_BASE: str = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 TIER1_DECLARED_COST_USD: float = 0.0
 TIER1_DECLARED_LATENCY_MS: float = 600.0
 
+# Wikipedia API blocks default python-requests User-Agents to prevent
+# scrapers. A custom User-Agent is required for production traffic.
+HEADERS: dict[str, str] = {
+    "User-Agent": "EnrichmentRouter/1.0 (https://github.com/your-repo/enrichment-router)"
+}
+
 # Confidence values for tier-1 resolutions. short_description is the
 # most reliable because it comes from Wikipedia's curated page summary
 # field. Country extraction from the article extract is less precise
@@ -52,7 +58,7 @@ class WikipediaResult:
 
 def _default_fetcher(name: str) -> dict | None:
     url = WIKIPEDIA_REST_BASE + quote(name)
-    resp = requests.get(url, timeout=10)
+    resp = requests.get(url, timeout=10, headers=HEADERS)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()

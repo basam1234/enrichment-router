@@ -1,0 +1,109 @@
+[
+  {
+    "name": "Stripe",
+    "domain": "stripe.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Notion",
+    "domain": "notion.so",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Airtable",
+    "domain": "airtable.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Figma",
+    "domain": "figma.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Linear",
+    "domain": "linear.app",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "GitHub",
+    "domain": "github.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Vercel",
+    "domain": "vercel.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Quantum Pie Holdings",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Zxy Corp",
+    "domain": "zxycorp.invalid",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Bogus Industries",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "FakeCo",
+    "domain": "fakeco.invalid",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Nonexistent LLC",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Imaginary Systems",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "OpenAI Labs",
+    "domain": "openai.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Sequoia Capital",
+    "domain": "sequoiacap.com",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Sweet Bakery",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Boston Robotics",
+    "domain": "bostonrobotics.de",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  },
+  {
+    "name": "Pre-Filled Corp",
+    "domain": "prefilled.com",
+    "industry": "Fintech",
+    "country": "US",
+    "is_public": false,
+    "short_description": "A fully pre-filled test record.",
+    "max_cost_usd": 0.05,
+    "max_latency_ms": 10000
+  }
+]
