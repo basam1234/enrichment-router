@@ -7,10 +7,11 @@ A cost-and-latency-aware data enrichment agent. Given a company name (and option
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Tiers](#tiers)
 - [Why LangGraph](#why-langgraph)
+- [Tiers](#tiers)
 - [Escalation Policy & Confidence Thresholds](#escalation-policy--confidence-thresholds)
 - [Modeled Cost](#modeled-cost)
+- [Recent Optimizations](#recent-optimizations)
 - [SQLite Schema](#sqlite-schema)
 - [API](#api)
 - [Frontend](#frontend)
@@ -36,7 +37,7 @@ The router uses a **three-tier escalation design** backed by a LangGraph cyclic 
   ┌────────────────────────────────────────────────────┐
   │               check_sufficiency                    │
   │  Evaluates resolved fields against the acceptance  │
-  │  threshold (0.6) and budget headroom. Decides:     │
+  │  threshold (0.5) and budget headroom. Decides:     │
   │  done / no-budget / no-more-tiers / escalate.      │
   └──────────┬─────────────────────────────────────────┘
              │
@@ -51,46 +52,58 @@ A separate **policy module** (`policy.py`) makes escalation decisions as a pure 
 
 The **trace system** appends structured events at every decision point (tier entry, budget drift, policy outcome, finalization). The trace reducer uses LangGraph's `operator.add` (list concatenation), so each node appends events without stomping previous entries.
 
-## Tiers
-
-| Tier | Tool | Resolves | Confidence | Cost | Latency (declared) |
-|------|------|----------|------------|------|---------------------|
-| 0 | Heuristic rules | industry, country (sometimes) | 0.35 | $0 | 10 ms |
-| 1 | Wikipedia REST | short_description, country, is_public | 0.85 / 0.55 / 0.5 | $0 | 600 ms |
-| 2 | LLM (Groq → modeled Claude cost) | all four | 0.9 | modeled | 2000 ms |
-
-**Tier 0 (Heuristic):** Pure-Python rules with zero network calls. Industry is guessed from name keywords (e.g., "Labs" → Technology, "Capital" → Finance). Country is guessed from ccTLD extraction (e.g., `.de` → Germany, `.jp` → Japan). Confidence is intentionally low (0.35) because these are educated guesses — useful as a fallback but never authoritative.
-
-**Tier 1 (Wikipedia):** Calls the [Wikipedia REST API summary endpoint](https://en.wikipedia.org/api/rest_v1/page/summary/) to get a curated `extract` and `description`. Country is extracted from the extract text by substring-matching against a known list of country names. `is_public` is determined by keyword-matching phrases like "publicly traded" or "privately held". The `short_description` field comes directly from Wikipedia's summary `description` field.
-
-**Tier 2 (LLM):** Sends the company name and domain to an LLM with a constrained prompt asking for only the missing fields as a JSON object. Uses `null` for unknown fields. Confidence is 0.9 — lower than 1.0 to acknowledge that LLMs can hallucinate.
-
 ## Why LangGraph
 
 The escalation flow is a **genuine cycle**: `try_tier → check_sufficiency → (increment tier, loop back)`, up to 3 iterations (tiers 0, 1, 2). This is not a DAG of branches — a linear chain would require unrolling every combination of "resolved after N tiers" into separate nodes or a hand-rolled while loop. LangGraph gives the cycle plus an append-only trace reducer for free, keeping the resolver a short declarative graph rather than imperative control flow.
 
 LangGraph's `StateGraph` with `operator.add` reducer means each node can append trace events without coordinating with other nodes — the framework handles the merge.
 
+## Tiers
+
+| Tier | Tool | Resolves | Confidence | Cost | Latency (declared) |
+|------|------|----------|------------|------|---------------------|
+| 0 | Heuristic rules | industry, country (sometimes) | 0.35 | $0 | 10 ms |
+| 1 | Wikipedia REST | short_description, country, is_public, industry | 0.65 – 0.85 | $0 | 600 ms |
+| 2 | LLM (Llama 3.1 8B via Groq) | all four | 0.9 | modeled | 2000 ms |
+
+**Tier 0 (Heuristic):** Pure-Python rules with zero network calls. Industry is guessed from name keywords (e.g., "Labs" → Technology, "Capital" → Finance). Country is guessed from ccTLD extraction (e.g., `.de` → Germany, `.jp` → Japan). Confidence is intentionally low (0.35) because these are educated guesses — useful as a fallback but never authoritative.
+
+**Tier 1 (Wikipedia):** Calls the [Wikipedia REST API summary endpoint](https://en.wikipedia.org/api/rest_v1/page/summary/) to get a curated `extract` and `description`. Before resolving any fields, `_is_company_page` validates that the page actually describes a company or organization — disambiguation pages (e.g., "Meta", "Meow") are rejected and treated as `not_found`, forcing clean escalation to Tier 2. Country is extracted by substring-matching against a known list of country names. `is_public` is determined by keyword-matching phrases like "publicly traded" or "privately held". Industry is extracted via a strict `INDUSTRY_MAP` — if a known keyword like "financial services" or "software" appears in the extract or description, the field is resolved at 0.65 confidence. If no keyword matches, the field remains unresolved, allowing escalation to Tier 2.
+
+**Tier 2 (LLM):** Sends the company name and domain to Llama 3.1 8B Instant via Groq's OpenAI-compatible API with a constrained prompt. The graph only includes *currently unresolved* fields in the prompt — fields already resolved by lower tiers at or above the acceptance threshold are excluded, saving prompt and completion tokens. The LLM responds with a JSON object; `null` is used for unknown fields. Confidence is 0.9 — lower than 1.0 to acknowledge that LLMs can hallucinate.
+
 ## Escalation Policy & Confidence Thresholds
 
-The policy module (`policy.py`) applies an **acceptance threshold of 0.6** to every resolved field. Fields below threshold are treated as unresolved, forcing the router to escalate to the next tier even though a lower tier "returned something."
+The policy module (`policy.py`) applies an **acceptance threshold of 0.5** to every resolved field. Fields with confidence below 0.5 are treated as unresolved, forcing the router to escalate to the next tier even though a lower tier "returned something."
 
-This threshold sits cleanly between the highest low-confidence band (0.55 for tier 1 country) and the lowest high-confidence band (0.85 for tier 1 short_description), leaving room for future confidence adjustments without changing the threshold. Without it, tier 0's keyword-matching guesses would block escalation, leaving fields "resolved" at unacceptably low confidence.
+This threshold was deliberately lowered from 0.6 to 0.5 — a business rule that prioritizes cost savings over strict LLM verification. At 0.5, Wikipedia's `country` (0.65) and `is_public` (0.65) resolutions pass the gate and avoid expensive Tier 2 escalation. Tier 0's 0.35-confidence guesses still fall below the threshold, so they never block escalation on their own.
 
 Four cases are evaluated in order:
 
-1. **Done** — all needed fields have accepted resolutions.
+1. **Done** — all needed fields have accepted resolutions (confidence ≥ 0.5).
 2. **Stop (budget)** — unresolved fields remain but no budget headroom for the next tier.
 3. **Stop (no more tiers)** — unresolved fields remain, budget exists, but tier 2 is the max.
 4. **Escalate** — unresolved fields remain, budget exists, next tier exists. Increment and loop.
 
 ## Modeled Cost
 
-Cost was a real constraint — the router must demonstrate savings over "just ask the LLM for everything." A free provider (Groq, via `openai/gpt-oss-20b`) was used for development and testing, while the system **reports what production against Claude Haiku 4.5 would cost.**
+Cost was a real constraint — the router must demonstrate savings over "just ask the LLM for everything." A free provider (Groq, via `llama-3.1-8b-instant`) is used for development and testing, while the system **reports what production against Claude Haiku 4.5 would cost.**
 
 Rates are $1.00/MTok input and $5.00/MTok output, sourced from <https://platform.claude.com/docs/en/about-claude/pricing>, and should be verified before relying on this for real budgeting, as Anthropic updates pricing periodically (e.g., Sonnet had a scheduled rate change on 2026-09-01).
 
-The modeled cost for tier 2 is a conservative upper-bound estimate. Groq's reasoning model (`openai/gpt-oss-20b`) incurs some hidden chain-of-thought token overhead even at low `reasoning_effort`, meaning actual Claude Haiku 4.5 costs for the same prompt would likely be slightly lower than the modeled cost reported here.
+## Recent Optimizations
+
+**Llama 3.1 switch:** The LLM tier was originally configured with `openai/gpt-oss-20b`, a reasoning model that incurs hidden chain-of-thought token overhead even at low `reasoning_effort`. Switching to `llama-3.1-8b-instant` eliminated this bloat. The modeled cost is now a realistic upper bound for what Claude Haiku 4.5 would consume on the same prompt, rather than a Groq-specific inflation.
+
+**Wikipedia company validation:** The `_is_company_page` check prevents Wikipedia disambiguation pages and generic concept pages from polluting enrichment results. When a company name is also a common word (e.g., "Meta", "Meow"), Wikipedia returns a disambiguation page with "Topics referred to by the same term" — these are rejected, and the router escalates cleanly to Tier 2.
+
+**Wikipedia industry extraction:** Tier 1 now resolves `industry` via a strict `INDUSTRY_MAP` database. If a known keyword (e.g., "financial services", "software", "pharmaceutical") appears in the Wikipedia description or extract, the field is resolved at 0.65 confidence. If no keyword matches, the field remains unresolved, allowing Tier 2 to provide a more nuanced classification. This replaced an earlier short-circuit that unconditionally skipped Wikipedia for industry queries.
+
+**LLM token optimization:** Tier 2 constructs its prompt from *currently unresolved* fields only — not from the full original `fields_needed` set. Fields already accepted by lower tiers (above the 0.5 threshold) are excluded, reducing both prompt and completion token usage.
+
+**Database session injection:** The FastAPI API uses `Depends(get_db)` to inject SQLAlchemy `Session` instances into route handlers, rather than opening ad-hoc sessions per repository call. This gives the caller control over the transaction lifecycle — `db.commit()` happens at the API layer, not deep inside repository functions.
+
+**LLM retries:** The `GroqLLMClient` uses `tenacity` with exponential backoff (up to 3 attempts, 2–10s wait) to handle Groq rate-limit responses (HTTP 429) gracefully.
 
 ## SQLite Schema
 
@@ -209,14 +222,14 @@ python -m eval.run_eval
 ## Testing
 
 ```bash
-pytest -v
+pytest -q
 ```
 
 The test suite uses:
 
 - **FakeLLMClient** — scripted LLM responses mapped to company names, no network calls
-- **Stub wiki fetcher** — simulates Wikipedia 404s for all names
-- **In-memory SQLite** — `configure_engine("sqlite:///:memory:")` per test
+- **Stub wiki fetcher** — injectable canned Wikipedia responses, no real HTTP
+- **In-memory SQLite** — `configure_engine("sqlite:///:memory:")` per test with `PRAGMA foreign_keys = ON`
 - **FastAPI TestClient** — full HTTP stack without a running server
 
 CI runs on every push and PR via GitHub Actions (`pytest`, `ruff`, `black --check`).
@@ -240,7 +253,8 @@ The project follows standard security practices:
 - The Wikipedia REST API has **practical rate limits** not modeled here.
 - **Budget check uses pre-call declared estimates**; a single unexpectedly slow call (e.g., network jitter on Wikipedia or an LLM spike) can overrun the actual budget. Drift events are logged but do not retroactively reject the tier.
 - **Trace events are ordered by insertion id** — correct for single-threaded runs only. Concurrent enrichment runs could interleave trace events across records.
-- The `is_public` determination in tier 1 uses simple keyword matching against article text, which can miss reworded descriptions or match stale text. The 0.5 confidence reflects this.
+- The `is_public` determination in tier 1 uses simple keyword matching against article text, which can miss reworded descriptions or match stale text. The 0.65 confidence reflects this.
+- The `INDUSTRY_MAP` is a static lookup table — it will miss novel or emerging industries and relies on exact keyword matches in the description/extract text.
 - No authentication or rate limiting on the API.
 - No async enrichment — the LangGraph run blocks the request thread.
 
