@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..budget import Budget
@@ -68,6 +69,12 @@ def _startup_init_db() -> None:
 @app.get("/api/health", response_model=HealthOut)
 def health() -> HealthOut:
     return HealthOut(status="ok")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Serve the frontend at the root."""
+    return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
 @app.post("/api/records", response_model=CreateRecordResponse)

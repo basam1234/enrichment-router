@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enrichment Router</title>
+<!-- Why no build step: this project deliberately avoids frontend
+tooling. The page is small enough that vanilla JS is clearer than a
+bundled framework, and avoids an npm dependency. -->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f0f0f0;
+    color: #333;
+    line-height: 1.5;
+    padding: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.8em; margin-bottom: 8px; }
+  p { margin-bottom: 20px; color: #555; }
+  .card {
+    background: #fff;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.9em; }
+  input, select, textarea, button {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.95em;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  button {
+    width: auto;
+    cursor: pointer;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    padding: 10px 24px;
+    font-weight: 600;
+  }
+  button:hover { background: #1d4ed8; }
+  .form-row { margin-bottom: 14px; }
+  .form-row-inline { display: flex; gap: 14px; }
+  .form-row-inline > .form-row { flex: 1; }
+  .error { color: #dc2626; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e5e5; }
+  th { background: #f9f9f9; font-weight: 600; }
+  .mono { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; }
+  .status-completed { color: #16a34a; font-weight: 600; }
+  .status-partial { color: #d97706; font-weight: 600; }
+  .status-error { color: #dc2626; font-weight: 600; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .section-header h2 { font-size: 1.2em; }
+  .trace-row { background: #f5f5f5; }
+  .trace-row td { font-size: 0.85em; padding: 10px 14px; }
+  .trace-event { margin-bottom: 6px; }
+  .trace-event pre { background: #eaeaea; padding: 6px 10px; border-radius: 4px; overflow-x: auto; font-size: 0.8em; }
+  .expand-btn { background: none; border: 1px solid #ccc; color: #333; padding: 4px 12px; font-size: 0.85em; }
+  .expand-btn:hover { background: #e5e5e5; }
+</style>
+</head>
+<body>
+
+<h1>Enrichment Router</h1>
+<p>Submit a company to enrich missing fields. The router escalates through heuristic &rarr; Wikipedia &rarr; LLM tiers, stopping when fields are resolved or the budget is exhausted.</p>
+
+<div class="card">
+  <form id="enrich-form">
+    <div class="form-row">
+      <label for="name">Company Name *</label>
+      <input type="text" id="name" name="name" required>
+    </div>
+    <div class="form-row-inline">
+      <div class="form-row">
+        <label for="domain">Domain</label>
+        <input type="text" id="domain" name="domain">
+      </div>
+      <div class="form-row">
+        <label for="industry">Industry</label>
+        <input type="text" id="industry" name="industry">
+      </div>
+      <div class="form-row">
+        <label for="country">Country</label>
+        <input type="text" id="country" name="country">
+      </div>
+    </div>
+    <div class="form-row-inline">
+      <div class="form-row">
+        <label for="is_public">Public Company</label>
+        <select id="is_public" name="is_public">
+          <option value="">Not specified</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="max_cost_usd">Max Cost (USD)</label>
+        <input type="number" id="max_cost_usd" name="max_cost_usd" value="0.01" min="0.0001" step="0.0001">
+      </div>
+      <div class="form-row">
+        <label for="max_latency_ms">Max Latency (ms)</label>
+        <input type="number" id="max_latency_ms" name="max_latency_ms" value="5000" min="100" step="100">
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="short_description">Short Description</label>
+      <textarea id="short_description" name="short_description"></textarea>
+    </div>
+    <button type="submit">Enrich</button>
+  </form>
+</div>
+
+<div class="card" id="result-card" style="display:none;">
+  <div id="result"></div>
+</div>
+
+<div class="card">
+  <div class="section-header">
+    <h2>Past Runs</h2>
+    <button onclick="refreshRuns()" style="width:auto;">Refresh</button>
+  </div>
+  <div id="runs"></div>
+</div>
+
+<script>
+function formatCost(n) {
+  return Number(n).toFixed(6);
+}
+
+function formatLatency(n) {
+  return Number(n).toFixed(1);
+}
+
+function statusColor(status) {
+  switch (status) {
+    case 'completed': return 'status-completed';
+    case 'partial': return 'status-partial';
+    default: return 'status-error';
+  }
+}
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const body = {
+    name: form.name.value,
+    max_cost_usd: parseFloat(form.max_cost_usd.value),
+    max_latency_ms: parseFloat(form.max_latency_ms.value)
+  };
+  if (form.domain.value) body.domain = form.domain.value;
+  if (form.industry.value) body.industry = form.industry.value;
+  if (form.country.value) body.country = form.country.value;
+  if (form.short_description.value) body.short_description = form.short_description.value;
+  const isPublic = form.is_public.value;
+  if (isPublic === 'true') body.is_public = true;
+  else if (isPublic === 'false') body.is_public = false;
+
+  const resultCard = document.getElementById('result-card');
+  const resultDiv = document.getElementById('result');
+
+  try {
+    const resp = await fetch('/api/records', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      resultDiv.innerHTML = '<span class="error">' + (err.detail || 'Request failed') + '</span>';
+    } else {
+      const data = await resp.json();
+      renderResult(data, resultDiv);
+    }
+  } catch (err) {
+    resultDiv.innerHTML = '<span class="error">Network error: ' + err.message + '</span>';
+  }
+  resultCard.style.display = '';
+}
+
+function renderResult(data, el) {
+  let html = '';
+  html += '<p><strong>Run ID:</strong> ' + data.run_id + ' &nbsp; <strong>Record ID:</strong> ' + data.record_id + '</p>';
+  html += '<p>Status: <span class="' + statusColor(data.status) + '">' + data.status + '</span></p>';
+  if (data.resolved && data.resolved.length) {
+    html += '<table><thead><tr><th>Field</th><th>Value</th><th>Tier</th><th>Confidence</th></tr></thead><tbody>';
+    for (const f of data.resolved) {
+      html += '<tr>';
+      html += '<td>' + f.name + '</td>';
+      html += '<td>' + f.value + '</td>';
+      html += '<td>' + (f.caller_supplied ? 'Caller-supplied' : 'Tier ' + f.tier) + '</td>';
+      html += '<td class="mono">' + f.confidence + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  if (data.unresolved_fields && data.unresolved_fields.length) {
+    html += '<p><strong>Unresolved:</strong> ' + data.unresolved_fields.join(', ') + '</p>';
+  }
+  html += '<p class="mono"><strong>Cost:</strong> $' + formatCost(data.total_cost_usd) + ' &nbsp; <strong>Latency:</strong> ' + formatLatency(data.total_latency_ms) + ' ms</p>';
+  el.innerHTML = html;
+}
+
+async function refreshRuns() {
+  const runsDiv = document.getElementById('runs');
+  try {
+    const resp = await fetch('/api/records');
+    if (!resp.ok) {
+      runsDiv.innerHTML = '<span class="error">Failed to load runs</span>';
+      return;
+    }
+    const data = await resp.json();
+    renderRunsTable(data, runsDiv);
+  } catch (err) {
+    runsDiv.innerHTML = '<span class="error">Network error: ' + err.message + '</span>';
+  }
+}
+
+function renderRunsTable(records, el) {
+  if (!records.length) {
+    el.innerHTML = '<p>No runs yet.</p>';
+    return;
+  }
+  let html = '<table id="runs-table"><thead><tr><th>Record ID</th><th>Name</th><th>Status</th><th>Resolved</th><th>Cost</th><th>Latency</th><th>Created</th><th></th></tr></thead><tbody>';
+  for (const r of records) {
+    html += '<tr>';
+    html += '<td>' + r.record_id + '</td>';
+    html += '<td>' + r.name + '</td>';
+    html += '<td><span class="' + statusColor(r.status) + '">' + r.status + '</span></td>';
+    html += '<td class="mono">' + r.resolved_field_count + '</td>';
+    html += '<td class="mono">$' + formatCost(r.total_cost_usd) + '</td>';
+    html += '<td class="mono">' + formatLatency(r.total_latency_ms) + ' ms</td>';
+    html += '<td>' + r.created_at + '</td>';
+    html += '<td><button class="expand-btn" onclick="toggleTrace(' + r.record_id + ', this)">Show trace</button></td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function toggleTrace(recordId, btn) {
+  const row = btn.parentElement.parentElement;
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains('trace-row')) {
+    existing.remove();
+    btn.textContent = 'Show trace';
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/records/' + recordId + '/trace');
+    if (!resp.ok) {
+      alert('Failed to fetch trace');
+      return;
+    }
+    const trace = await resp.json();
+    const tr = document.createElement('tr');
+    tr.classList.add('trace-row');
+    let html = '<td colspan="8">';
+    if (!trace.length) {
+      html += '<p>No trace events.</p>';
+    } else {
+      for (const ev of trace) {
+        html += '<div class="trace-event"><strong>' + ev.node + '</strong> <span class="mono">' + ev.timestamp + '</span>';
+        html += '<pre>' + JSON.stringify(ev.detail, null, 2) + '</pre></div>';
+      }
+    }
+    html += '</td>';
+    tr.innerHTML = html;
+    row.after(tr);
+    btn.textContent = 'Hide trace';
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+}
+
+document.getElementById('enrich-form').addEventListener('submit', handleSubmit);
+
+refreshRuns();
+</script>
+
+</body>
+</html>
