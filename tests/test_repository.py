@@ -75,7 +75,9 @@ def test_save_run_returns_ids():
             "industry": _make_resolved("industry", "Finance"),
         }
     )
-    run_id, record_id = save_run(request, result, [])
+    with Session(repo.get_engine()) as db:
+        run_id, record_id = save_run(request, result, [], db=db)
+        db.commit()
     assert run_id >= 1
     assert record_id >= 1
 
@@ -90,21 +92,23 @@ def test_save_run_then_get_record_round_trips():
             ),
         }
     )
-    run_id, record_id = save_run(request, result, [])
+    with Session(repo.get_engine()) as db:
+        run_id, record_id = save_run(request, result, [], db=db)
+        db.commit()
 
-    detail = get_record(record_id)
-    assert detail is not None
-    assert detail.name == "Stripe"
-    assert detail.run_id == run_id
+        detail = get_record(record_id, db=db)
+        assert detail is not None
+        assert detail.name == "Stripe"
+        assert detail.run_id == run_id
 
-    resolved = detail.resolved
-    assert resolved["industry"]["value"] == "Finance"
-    assert resolved["industry"]["tier"] == 1
-    assert resolved["industry"]["confidence"] == 0.85
-    assert not resolved["industry"]["caller_supplied"]
+        resolved = detail.resolved
+        assert resolved["industry"]["value"] == "Finance"
+        assert resolved["industry"]["tier"] == 1
+        assert resolved["industry"]["confidence"] == 0.85
+        assert not resolved["industry"]["caller_supplied"]
 
-    assert resolved["is_public"]["value"] is False
-    assert resolved["is_public"]["caller_supplied"] is True
+        assert resolved["is_public"]["value"] is False
+        assert resolved["is_public"]["caller_supplied"] is True
 
 
 def test_save_run_persists_trace_events():
@@ -115,7 +119,9 @@ def test_save_run_persists_trace_events():
         _make_event("check_sufficiency", decision="escalate"),
         _make_event("finalize_done", status="done"),
     ]
-    run_id, _ = save_run(request, result, events)
+    with Session(repo.get_engine()) as db:
+        run_id, _ = save_run(request, result, events, db=db)
+        db.commit()
 
     trace = get_trace(run_id)
     assert len(trace) == 3
@@ -128,25 +134,29 @@ def test_save_run_persists_trace_events():
 def test_save_run_reuses_record_for_same_name_domain():
     request = _make_request(name="Stripe", domain="stripe.com")
 
-    _, record_id_1 = save_run(
-        request,
-        _make_result(
-            resolved={
-                "industry": _make_resolved("industry", "Finance"),
-            }
-        ),
-        [],
-    )
+    with Session(repo.get_engine()) as db:
+        _, record_id_1 = save_run(
+            request,
+            _make_result(
+                resolved={
+                    "industry": _make_resolved("industry", "Finance"),
+                }
+            ),
+            [],
+            db=db,
+        )
 
-    _, record_id_2 = save_run(
-        request,
-        _make_result(
-            resolved={
-                "short_description": _make_resolved("short_description", "Payment platform"),
-            }
-        ),
-        [],
-    )
+        _, record_id_2 = save_run(
+            request,
+            _make_result(
+                resolved={
+                    "short_description": _make_resolved("short_description", "Payment platform"),
+                }
+            ),
+            [],
+            db=db,
+        )
+        db.commit()
 
     assert record_id_1 == record_id_2
 
@@ -159,26 +169,36 @@ def test_save_run_reuses_record_for_same_name_domain():
 
 
 def test_different_domains_create_separate_records():
-    _, r1 = save_run(_make_request(name="Stripe", domain="stripe.com"), _make_result(), [])
-    _, r2 = save_run(_make_request(name="Stripe", domain="stripe.jp"), _make_result(), [])
+    with Session(repo.get_engine()) as db:
+        _, r1 = save_run(
+            _make_request(name="Stripe", domain="stripe.com"), _make_result(), [], db=db
+        )
+        _, r2 = save_run(
+            _make_request(name="Stripe", domain="stripe.jp"), _make_result(), [], db=db
+        )
+        db.commit()
     assert r1 != r2
     assert len(list_records()) == 2
 
 
 def test_list_records_newest_first():
-    _, r1 = save_run(_make_request(name="First"), _make_result(), [])
-    _, r2 = save_run(_make_request(name="Second"), _make_result(), [])
+    with Session(repo.get_engine()) as db:
+        _, r1 = save_run(_make_request(name="First"), _make_result(), [], db=db)
+        _, r2 = save_run(_make_request(name="Second"), _make_result(), [], db=db)
+        db.commit()
     records = list_records()
     assert records[0].record_id == r2
     assert records[1].record_id == r1
 
 
 def test_get_record_returns_none_for_unknown_id():
-    assert get_record(99999) is None
+    with Session(repo.get_engine()) as db:
+        assert get_record(99999, db=db) is None
 
 
 def test_get_trace_returns_empty_for_unknown_run_id():
-    assert get_trace(99999) == []
+    with Session(repo.get_engine()) as db:
+        assert get_trace(99999, db=db) == []
 
 
 def test_transaction_rollback_on_error():
@@ -194,7 +214,8 @@ def test_transaction_rollback_on_error():
             session.flush()
         session.rollback()
 
-    assert get_trace(99999) == []
+    with Session(repo.get_engine()) as db:
+        assert get_trace(99999, db=db) == []
 
 
 def test_configure_engine_is_idempotent():

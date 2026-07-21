@@ -7,10 +7,13 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from sqlalchemy.orm import Session
+
 from ..budget import Budget
 from ..graph import run_enrichment
 from ..repository import (
     configure_engine,
+    get_engine,
     get_record,
     get_trace,
     list_records,
@@ -30,7 +33,7 @@ from .schemas import (
 
 from dotenv import load_dotenv
 
-load_dotenv()  # This reads the .env file and loads the variables into os.environ
+load_dotenv()
 
 _cached_llm_client: Optional[LLMClient] = None
 
@@ -54,6 +57,14 @@ def get_wiki_fetcher() -> Optional[Callable]:
 
 def get_budget_from_request(req: CreateRecordRequest) -> Budget:
     return Budget(max_cost_usd=req.max_cost_usd, max_latency_ms=req.max_latency_ms)
+
+
+def get_db():
+    db = Session(get_engine())
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # Deliberately NOT adding CORSMiddleware: the frontend is served
@@ -86,6 +97,7 @@ def create_record(
     req: CreateRecordRequest,
     llm_client: LLMClient = Depends(get_llm_client),
     wiki_fetcher: Optional[Callable] = Depends(get_wiki_fetcher),
+    db: Session = Depends(get_db),
 ) -> CreateRecordResponse:
     raw = req.model_dump()
     try:
@@ -104,7 +116,8 @@ def create_record(
         wiki_fetcher=wiki_fetcher,
     )
 
-    run_id, record_id = save_run(enrichment_request, result, trace_events)
+    run_id, record_id = save_run(enrichment_request, result, trace_events, db=db)
+    db.commit()
 
     return CreateRecordResponse(
         run_id=run_id,
@@ -129,13 +142,13 @@ def create_record(
 
 
 @app.get("/api/records", response_model=list[RecordSummaryOut])
-def list_records_route() -> list[RecordSummaryOut]:
-    return [RecordSummaryOut(**rs.__dict__) for rs in list_records()]
+def list_records_route(db: Session = Depends(get_db)) -> list[RecordSummaryOut]:
+    return [RecordSummaryOut(**rs.__dict__) for rs in list_records(db=db)]
 
 
 @app.get("/api/records/{record_id}", response_model=RecordDetailOut)
-def get_record_route(record_id: int) -> RecordDetailOut:
-    detail = get_record(record_id)
+def get_record_route(record_id: int, db: Session = Depends(get_db)) -> RecordDetailOut:
+    detail = get_record(record_id, db=db)
     if detail is None:
         raise HTTPException(status_code=404, detail="record not found")
     return RecordDetailOut(
@@ -152,8 +165,8 @@ def get_record_route(record_id: int) -> RecordDetailOut:
 
 
 @app.get("/api/records/{record_id}/trace", response_model=list[TraceEventOut])
-def get_trace_route(record_id: int) -> list[TraceEventOut]:
-    detail = get_record(record_id)
+def get_trace_route(record_id: int, db: Session = Depends(get_db)) -> list[TraceEventOut]:
+    detail = get_record(record_id, db=db)
     if detail is None:
         raise HTTPException(status_code=404, detail="record not found")
     if detail.run_id == 0:
@@ -165,5 +178,5 @@ def get_trace_route(record_id: int) -> list[TraceEventOut]:
             timestamp=ev.timestamp,
             id=ev.id,
         )
-        for ev in get_trace(detail.run_id)
+        for ev in get_trace(detail.run_id, db=db)
     ]

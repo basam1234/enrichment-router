@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.9.0",
     "pydantic>=2.9.0",
     "python-dotenv>=1.0.0",
+    "tenacity>=8.0.0",
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from openai import OpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..models import EnrichmentRequest, FieldName, ResolvedField
 from ..pricing import modeled_cost_usd
@@ -47,7 +48,7 @@ class LLMProviderConfig:
 DEFAULT_GROQ_CONFIG = LLMProviderConfig(
     base_url="https://api.groq.com/openai/v1",
     api_key_env="GROQ_API_KEY",
-    model="openai/gpt-oss-20b",
+    model="llama-3.1-8b-instant",
 )
 
 
@@ -72,6 +73,7 @@ class GroqLLMClient:
             )
         self._client = OpenAI(base_url=config.base_url, api_key=api_key)
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def complete(self, system: str, prompt: str) -> LLMResponse:
         resp = self._client.chat.completions.create(
             model=self.config.model,
@@ -79,10 +81,6 @@ class GroqLLMClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            # reasoning_effort="low": simple structured extraction doesn't
-            # need multi-step reasoning. The default "medium" was inflating
-            # completion-token counts with hidden reasoning overhead.
-            reasoning_effort="low",
         )
         usage = resp.usage
         return LLMResponse(

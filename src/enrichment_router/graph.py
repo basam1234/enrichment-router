@@ -13,7 +13,7 @@ from .models import (
     ResolvedField,
     RunStatus,
 )
-from .policy import PolicyDecision, decide
+from .policy import PolicyDecision, decide, ACCEPTANCE_THRESHOLD
 from .tools import heuristic, llm as llm_mod, wikipedia
 from .tools.llm import LLMClient
 from .trace import TraceEvent, make_event
@@ -50,9 +50,14 @@ def _run_tier_tool(
         result = wikipedia.enrich(state["request"], fetcher=state["wiki_fetcher"])
         return result.resolved, result.cost_usd, result.measured_latency_ms
     if tier == 2:
-        # Calculate which fields from the original request are STILL unresolved.
-        # We must NOT ask the LLM to resolve fields that cheaper tiers already got.
-        currently_unresolved = state["request"].fields_needed - set(state["resolved"].keys())
+        # Calculate which fields are STILL unresolved or below the acceptance threshold.
+        # We must ask the LLM to re-evaluate any field that a lower tier
+        # guessed at but didn't have enough confidence for.
+        currently_unresolved = {
+            f
+            for f in state["request"].fields_needed
+            if f not in state["resolved"] or state["resolved"][f].confidence < ACCEPTANCE_THRESHOLD
+        }
 
         # Create a copy of the request with ONLY the currently unresolved fields
         llm_request = state["request"].model_copy(
@@ -61,7 +66,7 @@ def _run_tier_tool(
             }
         )
 
-        # If there is nothing left to resolve (edge case), return empty
+        # If there is nothing left to resolve, return empty
         if not currently_unresolved:
             return {}, 0.0, 0.0
 

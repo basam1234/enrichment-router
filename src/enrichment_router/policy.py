@@ -5,16 +5,10 @@ from enum import Enum
 
 from .models import FieldName, ResolvedField
 
-# Threshold set at 0.6 to serve as a gate between low-confidence
-# heuristics (tier 0 at 0.35, some tier 1 at 0.55) and high-confidence
-# resolutions (tier 1 short_description at 0.85, tier 2 LLM at 0.9).
-# Without a threshold, tier 0's keyword-matching guesses would block
-# escalation, leaving fields "resolved" at unacceptably low confidence.
-# 0.6 is chosen because it sits cleanly between the highest low-conf
-# band (0.55 for tier 1 country) and the lowest high-conf band (0.85
-# for tier 1 short_description), leaving room for future confidence
-# adjustments without changing the threshold.
-ACCEPTANCE_THRESHOLD: float = 0.6
+# Per-field acceptance threshold. Lowered to 0.5 to accept Tier 1
+# (Wikipedia) country and is_public resolutions, prioritizing cost
+# savings over strict LLM verification.
+ACCEPTANCE_THRESHOLD: float = 0.5
 
 
 class PolicyDecision(str, Enum):

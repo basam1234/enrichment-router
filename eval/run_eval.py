@@ -1,28 +1,30 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Callable, Optional
-
-import matplotlib
-
-# Use the Agg backend so chart rendering never requires a display server
-# (e.g., in CI or headless environments). Must be set before importing
-# pyplot to avoid RuntimeError from Matplotlib's backend lock.
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-from enrichment_router.budget import Budget
-from enrichment_router.graph import run_enrichment
-from enrichment_router.models import EnrichmentResult
-from enrichment_router.tools.llm import LLMClient
-from enrichment_router.validation import MissingNameError, validate_request
-from eval.baseline import load_dataset, run_baseline
+from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 if str(_REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT / "src"))
+
+load_dotenv()  # This reads the .env file and loads the variables into os.environ
+
+import matplotlib  # noqa: E402
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+from enrichment_router.budget import Budget  # noqa: E402
+from enrichment_router.graph import run_enrichment  # noqa: E402
+from enrichment_router.models import EnrichmentResult  # noqa: E402
+from enrichment_router.tools.llm import LLMClient  # noqa: E402
+from enrichment_router.validation import MissingNameError, validate_request  # noqa: E402
+from eval.baseline import load_dataset, run_baseline  # noqa: E402
 
 
 @dataclass

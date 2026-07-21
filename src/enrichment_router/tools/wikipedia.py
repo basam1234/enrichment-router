@@ -13,23 +13,10 @@ from .heuristic import TLD_TO_COUNTRY
 WIKIPEDIA_REST_BASE: str = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 TIER1_DECLARED_COST_USD: float = 0.0
 TIER1_DECLARED_LATENCY_MS: float = 600.0
-
-# Wikipedia API blocks default python-requests User-Agents to prevent
-# scrapers. A custom User-Agent is required for production traffic.
-HEADERS: dict[str, str] = {
-    "User-Agent": "EnrichmentRouter/1.0 (https://github.com/your-repo/enrichment-router)"
-}
-
-# Confidence values for tier-1 resolutions. short_description is the
-# most reliable because it comes from Wikipedia's curated page summary
-# field. Country extraction from the article extract is less precise
-# due to ambiguous mentions, hence 0.55. is_public has the lowest
-# confidence (0.5) because keyword matching against phrases like
-# "publicly traded" can miss reworded descriptions or match stale text.
 CONF_SHORT_DESCRIPTION: float = 0.85
-CONF_COUNTRY: float = 0.55
-CONF_IS_PUBLIC: float = 0.5
-
+CONF_COUNTRY: float = 0.65
+CONF_IS_PUBLIC: float = 0.65
+CONF_INDUSTRY: float = 0.65
 PUBLIC_INDICATORS: tuple[str, ...] = (
     "publicly traded",
     "public company",
@@ -40,12 +27,44 @@ PRIVATE_INDICATORS: tuple[str, ...] = (
     "privately held",
     "private company",
 )
-
+# Strict keyword map to ensure high certainty extraction.
+# If these keywords are found in the description or extract, we resolve the industry.
+# If none are found, we return None, allowing escalation to Tier 2.
+INDUSTRY_MAP: dict[str, str] = {
+    "financial services": "Finance",
+    "banking": "Finance",
+    "venture capital": "Finance",
+    "private equity": "Finance",
+    "software": "Technology",
+    "technology": "Technology",
+    "artificial intelligence": "Technology",
+    "app": "Technology",
+    "application": "Technology",
+    "platform": "Technology",
+    "tool": "Technology",
+    "saas": "Technology",
+    "internet": "Technology",
+    "research": "Technology",
+    "pharmaceutical": "Healthcare",
+    "biotechnology": "Healthcare",
+    "healthcare": "Healthcare",
+    "automotive": "Industrial/Robotics",
+    "robotics": "Industrial/Robotics",
+    "food": "Food & Beverage",
+    "beverage": "Food & Beverage",
+    "retail": "Retail",
+    "e-commerce": "Retail",
+    "media": "Media",
+    "entertainment": "Media",
+    "energy": "Energy",
+}
 # Deduplicated country-name list derived from the tier-0 TLD table.
-# Sorted for deterministic iteration order across Python versions; the
-# sort order does not affect _match_country's behavior (it checks all
-# matches and filters by substring containment, not by priority).
 COUNTRY_NAMES: list[str] = sorted(set(TLD_TO_COUNTRY.values()), key=lambda n: (-len(n), n))
+
+# Custom User-Agent to prevent Wikipedia from blocking requests with a 403.
+HEADERS: dict[str, str] = {
+    "User-Agent": "EnrichmentRouter/1.0 (https://github.com/your-repo/enrichment-router)"
+}
 
 
 @dataclass
@@ -65,19 +84,74 @@ def _default_fetcher(name: str) -> dict | None:
     return resp.json()
 
 
+def _is_company_page(data: dict) -> bool:
+    """Check if the Wikipedia page is actually about a company.
+
+    Wikipedia will return pages for concepts, animals, or disambiguation
+    pointers if a company name is also a common word (e.g., "Meta", "Meow").
+    We reject these to prevent non-company data from polluting the enrichment.
+    """
+    desc = (data.get("description") or "").lower()
+    extract = (data.get("extract") or "").lower()
+    text = f"{desc} {extract}"
+
+    # Reject disambiguation or generic term pages
+    if "disambiguation" in text or "referred to by" in text or "may refer to" in text:
+        return False
+
+    # Must contain at least one organizational keyword to be treated as a company
+    company_keywords = (
+        "company",
+        "corporation",
+        "firm",
+        "inc.",
+        "ltd.",
+        "llc",
+        "organization",
+        "subsidiary",
+        "startup",
+        "platform",
+        "service",
+        "provider",
+        "agency",
+        "chain",
+        "business",
+        "enterprise",
+        "brand",
+        "retailer",
+        "bank",
+        "software",
+        "app",
+        "application",
+        "tool",
+        "website",
+        "technology",
+        "system",
+        "network",
+        "developer",
+        "manufacturer",
+    )
+    return any(kw in text for kw in company_keywords)
+
+
+def _match_industry(extract: str, description: str) -> str | None:
+    """Extract an industry label strictly from known keywords.
+    Returns None if no known industry is found, allowing escalation.
+    """
+    text = f"{description} {extract}".lower()
+    for key, label in INDUSTRY_MAP.items():
+        if key in text:
+            return label
+    return None
+
+
 def _match_country(extract: str) -> str | None:
     """Return the unique country name found in extract, or None.
 
     When one matched country name is a substring of another (e.g.,
     "Guinea" is a substring of "Equatorial Guinea"), only the longest
     match is counted. This prevents false ambiguity from nested country
-    names — without it, a mention of "Equatorial Guinea" would also
-    match "Guinea," pushing the count to 2 and reporting unresolved.
-
-    Case-sensitive matching is used because country names are proper
-    nouns — they appear capitalized in Wikipedia extracts, and
-    case-folding would risk false positives against lowercase common
-    words (e.g., "china" the material vs "China" the country).
+    names.
     """
     matches = [name for name in COUNTRY_NAMES if name in extract]
     if not matches:
@@ -121,9 +195,29 @@ def enrich(
             not_found=True,
         )
 
+    # Validate the page is actually about a company. If not, treat as not_found
+    # so the system cleanly escalates to Tier 2 instead of using bad data.
+    if not _is_company_page(data):
+        return WikipediaResult(
+            resolved={},
+            cost_usd=0.0,
+            measured_latency_ms=elapsed_ms,
+            not_found=True,
+        )
+
     resolved: dict[FieldName, ResolvedField] = {}
     extract: str = data.get("extract", "") or ""
     description: str = data.get("description", "") or ""
+
+    if "industry" in request.fields_needed and (extract or description):
+        industry = _match_industry(extract, description)
+        if industry is not None:
+            resolved["industry"] = ResolvedField(
+                name="industry",
+                value=industry,
+                tier=1,
+                confidence=CONF_INDUSTRY,
+            )
 
     if "short_description" in request.fields_needed and description:
         resolved["short_description"] = ResolvedField(

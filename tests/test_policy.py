@@ -48,10 +48,13 @@ def test_tier0_confidence_below_threshold():
     assert outcome.unresolved_fields == ["industry"]
 
 
-def test_tier1_country_confidence_below_threshold():
-    resolved = {"country": _rf("country", "Germany", 0.55, tier=1)}
+def test_tier1_country_confidence_above_threshold():
+    # fields_needed={"country"}, resolved with country at confidence 0.65
+    # current_tier=1, has_budget_headroom=True -> DONE_ALL_RESOLVED
+    resolved = {"country": _rf("country", "Germany", 0.65, tier=1)}
     outcome = decide({"country"}, resolved, current_tier=1, has_budget_headroom_for_next_tier=True)
-    assert outcome.decision == PolicyDecision.ESCALATE_TO_NEXT_TIER
+    assert outcome.decision == PolicyDecision.DONE_ALL_RESOLVED
+    assert outcome.unresolved_fields == []
 
 
 def test_tier1_short_description_above_threshold():

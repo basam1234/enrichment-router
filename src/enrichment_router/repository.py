@@ -141,7 +141,7 @@ def save_run(
     request: EnrichmentRequest,
     result: EnrichmentResult,
     trace_events: list[TraceEvent],
-    engine: Optional[Any] = None,
+    db: Optional[Session] = None,
 ) -> tuple[int, int]:
     """Persist a record (or reuse), a run, and trace events.
 
@@ -150,37 +150,40 @@ def save_run(
     separately from EnrichmentResult by design; returns both IDs so the
     API layer doesn't need a separate lookup.
     """
-    eng = engine or get_engine()
-    with Session(eng) as session:
-        try:
-            record = _find_or_create_record(session, request)
-            run = EnrichmentRunORM(
-                record_id=record.id,
-                status=result.status,
-                total_cost_usd=result.total_cost_usd,
-                total_latency_ms=result.total_latency_ms,
-                resolved_fields_json=_serialize_resolved(result.resolved),
-            )
-            session.add(run)
-            session.flush()
-            for ev in trace_events:
-                session.add(
-                    TraceEventORM(
-                        run_id=run.id,
-                        node=ev.node,
-                        detail=json.dumps(ev.detail),
-                    )
+    session = db if db is not None else Session(get_engine())
+    try:
+        record = _find_or_create_record(session, request)
+        run = EnrichmentRunORM(
+            record_id=record.id,
+            status=result.status,
+            total_cost_usd=result.total_cost_usd,
+            total_latency_ms=result.total_latency_ms,
+            resolved_fields_json=_serialize_resolved(result.resolved),
+        )
+        session.add(run)
+        session.flush()
+        for ev in trace_events:
+            session.add(
+                TraceEventORM(
+                    run_id=run.id,
+                    node=ev.node,
+                    detail=json.dumps(ev.detail),
                 )
+            )
+        if db is None:
             session.commit()
-            return run.id, record.id
-        except Exception:
-            session.rollback()
-            raise
+        return run.id, record.id
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        if db is None:
+            session.close()
 
 
-def get_record(record_id: int, engine: Optional[Any] = None) -> Optional[RecordDetail]:
-    eng = engine or get_engine()
-    with Session(eng) as session:
+def get_record(record_id: int, db: Optional[Session] = None) -> Optional[RecordDetail]:
+    session = db if db is not None else Session(get_engine())
+    try:
         record = session.get(RecordORM, record_id)
         if record is None:
             return None
@@ -213,12 +216,15 @@ def get_record(record_id: int, engine: Optional[Any] = None) -> Optional[RecordD
             unresolved_fields=[],
             created_at=latest.created_at.isoformat() if latest.created_at else "",
         )
+    finally:
+        if db is None:
+            session.close()
 
 
-def list_records(engine: Optional[Any] = None) -> list[RecordSummary]:
-    eng = engine or get_engine()
-    out: list[RecordSummary] = []
-    with Session(eng) as session:
+def list_records(db: Optional[Session] = None) -> list[RecordSummary]:
+    session = db if db is not None else Session(get_engine())
+    try:
+        out: list[RecordSummary] = []
         for record in session.execute(select(RecordORM).order_by(desc(RecordORM.id))).scalars():
             created = record.created_at.isoformat() if record.created_at else ""
             if record.runs:
@@ -247,10 +253,13 @@ def list_records(engine: Optional[Any] = None) -> list[RecordSummary]:
                         created_at=created,
                     )
                 )
-    return out
+        return out
+    finally:
+        if db is None:
+            session.close()
 
 
-def get_trace(run_id: int, engine: Optional[Any] = None) -> list[TraceEvent]:
+def get_trace(run_id: int, db: Optional[Session] = None) -> list[TraceEvent]:
     """Return trace events for a run, ordered by insertion order (id ASC).
 
     Trace events are ordered by primary key rather than timestamp
@@ -258,9 +267,9 @@ def get_trace(run_id: int, engine: Optional[Any] = None) -> list[TraceEvent]:
     within a single run share the same second. The auto-increment id
     guarantees correct ordering.
     """
-    eng = engine or get_engine()
-    out: list[TraceEvent] = []
-    with Session(eng) as session:
+    session = db if db is not None else Session(get_engine())
+    try:
+        out: list[TraceEvent] = []
         for row in session.execute(
             select(TraceEventORM)
             .where(TraceEventORM.run_id == run_id)
@@ -278,4 +287,7 @@ def get_trace(run_id: int, engine: Optional[Any] = None) -> list[TraceEvent]:
                     id=str(row.id),
                 )
             )
-    return out
+        return out
+    finally:
+        if db is None:
+            session.close()
